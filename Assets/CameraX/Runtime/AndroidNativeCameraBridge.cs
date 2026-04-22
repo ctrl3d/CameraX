@@ -1,4 +1,6 @@
 using System;
+using System.Runtime.InteropServices;
+using UnityEngine;
 
 /// <summary>
 /// JNI 얇은 래퍼. NativeCameraPlugin.kt 와 1:1 매칭.
