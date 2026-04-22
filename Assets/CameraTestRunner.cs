@@ -124,7 +124,7 @@ public class CameraTestRunner : MonoBehaviour
         fitter.aspectRatio = 4f / 3f;
 
         var rawImage = previewGo.GetComponent<RawImage>();
-        rawImage.color = Color.black;
+        rawImage.color = Color.white;
 
         _camera = previewGo.AddComponent<NativeCameraController>();
         SetPrivateField(_camera, "playOnStart", autoStart);

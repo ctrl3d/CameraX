@@ -1,9 +1,9 @@
 <dependencies>
   <packages>
     <package>androidx.annotation:annotation:1.9.1</package>
-    <package>androidx.camera:camera-camera2:1.4.2</package>
-    <package>androidx.camera:camera-core:1.4.2</package>
-    <package>androidx.camera:camera-lifecycle:1.4.2</package>
+    <package>androidx.camera:camera-camera2:1.3.4</package>
+    <package>androidx.camera:camera-core:1.3.4</package>
+    <package>androidx.camera:camera-lifecycle:1.3.4</package>
     <package>androidx.core:core-ktx:1.16.0</package>
     <package>org.jetbrains.kotlin:kotlin-stdlib:1.9.25</package>
   </packages>

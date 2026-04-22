@@ -96,10 +96,9 @@ namespace CameraX
 
         /// <summary>
         /// 네이티브 플러그인에 Java UnityTextureBridge 객체를 전달.
-        /// NativeCameraPlugin.session (private static) → CameraXSession.bridge (private)
-        /// 리플렉션으로 접근.
+        /// 성공 시 true, session 또는 bridge가 아직 null이면 false.
         /// </summary>
-        public void SetNativeBridge()
+        public bool SetNativeBridge()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             try
@@ -108,26 +107,28 @@ namespace CameraX
                 var session = _plugin?.GetStatic<AndroidJavaObject>("session");
                 if (session == null)
                 {
-                    Debug.LogWarning("[NativeCamera] session field is null.");
-                    return;
+                    return false;
                 }
 
                 // CameraXSession.bridge (private field)
                 var bridge = session.Get<AndroidJavaObject>("bridge");
                 if (bridge == null)
                 {
-                    Debug.LogWarning("[NativeCamera] bridge field is null.");
-                    return;
+                    return false;
                 }
 
                 var rawBridge = bridge.GetRawObject();
                 OesRenderer_SetBridge(rawBridge);
                 Debug.Log("[NativeCamera] Native bridge object set successfully.");
+                return true;
             }
             catch (Exception e)
             {
                 Debug.LogError($"[NativeCamera] Failed to set native bridge: {e.Message}");
+                return false;
             }
+#else
+            return false;
 #endif
         }
 

@@ -179,7 +179,14 @@ namespace CameraX
             _fitter.aspectRatio = (float)requestedWidth / requestedHeight;
 
             // 네이티브 플러그인에 Java bridge 객체 전달
-            _bridge.SetNativeBridge();
+            // Java 쪽 session이 runOnUiThread로 비동기 생성되므로, 준비될 때까지 대기
+            const int maxBridgeWaitMs = 2000;
+            const int bridgePollMs = 20;
+            for (int waited = 0; waited < maxBridgeWaitMs; waited += bridgePollMs)
+            {
+                if (_bridge.SetNativeBridge()) break;
+                await Task.Delay(bridgePollMs);
+            }
 
             // 네이티브 플러그인에 텍스처 ID 전달
             var rtNativePtr = (int)_previewRT.GetNativeTexturePtr();
@@ -210,8 +217,8 @@ namespace CameraX
         {
             if (!_isPlaying) return;
             _isPlaying = false;
-            _bridge?.ReleaseNativeBridge();
             _bridge?.StopPreview();
+            _bridge?.ReleaseNativeBridge();
             ReleaseTextures();
         }
 
@@ -348,8 +355,8 @@ namespace CameraX
                 if (_isPlaying)
                 {
                     _isPlaying = false;
-                    _bridge?.ReleaseNativeBridge();
                     _bridge?.StopPreview();
+                    _bridge?.ReleaseNativeBridge();
                     // 주의: ReleaseTextures() 를 부르지 않는다 — RT / RawImage.texture 유지.
                 }
 
@@ -382,7 +389,14 @@ namespace CameraX
             if (texId == 0) return false;
 
             _oesTexId = texId;
-            _bridge.SetNativeBridge();
+            // Java 쪽 session이 runOnUiThread로 비동기 생성되므로, 준비될 때까지 대기
+            const int maxBridgeWaitMs = 2000;
+            const int bridgePollMs = 20;
+            for (int waited = 0; waited < maxBridgeWaitMs; waited += bridgePollMs)
+            {
+                if (_bridge.SetNativeBridge()) break;
+                await Task.Delay(bridgePollMs);
+            }
             var rtNativePtr = (int)_previewRT.GetNativeTexturePtr();
             _bridge.SetNativeTextures(_oesTexId, rtNativePtr, requestedWidth, requestedHeight);
             _renderEventFunc = _bridge.RenderEventFunc;
@@ -409,8 +423,8 @@ namespace CameraX
                 if (_isPlaying)
                 {
                     _isPlaying = false;
-                    _bridge?.ReleaseNativeBridge();
                     _bridge?.StopPreview();
+                    _bridge?.ReleaseNativeBridge();
                     ReleaseTextures();
                     Debug.Log("[NativeCamera] Paused — camera stopped.");
                 }
