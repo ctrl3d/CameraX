@@ -1,0 +1,18 @@
+{
+    "name": "work.ctrl3d.camerax.Editor",
+    "rootNamespace": "",
+    "references": [
+        "work.ctrl3d.camerax"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

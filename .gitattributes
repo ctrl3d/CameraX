@@ -1,0 +1,31 @@
+# Binary files - prevent line ending conversion
+*.so binary
+*.aar binary
+*.apk binary
+*.aab binary
+*.unitypackage binary
+*.asset binary
+*.unity binary
+*.prefab binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bmp binary
+*.tga binary
+*.psd binary
+*.mp3 binary
+*.wav binary
+*.ogg binary
+
+# Text files - normalize line endings to LF
+*.cs text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.xml text eol=lf
+*.asmdef text eol=lf
+*.shader text eol=lf
+*.cginc text eol=lf
+*.hlsl text eol=lf
+*.glsl text eol=lf

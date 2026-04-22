@@ -1,0 +1,28 @@
+<dependencies>
+  <packages>
+    <package>androidx.annotation:annotation:1.9.1</package>
+    <package>androidx.camera:camera-camera2:1.4.2</package>
+    <package>androidx.camera:camera-core:1.4.2</package>
+    <package>androidx.camera:camera-lifecycle:1.4.2</package>
+    <package>androidx.core:core-ktx:1.16.0</package>
+    <package>org.jetbrains.kotlin:kotlin-stdlib:1.9.25</package>
+  </packages>
+  <files />
+  <settings>
+    <setting name="androidAbis" value="arm64-v8a" />
+    <setting name="bundleId" value="com.viv.camera" />
+    <setting name="explodeAars" value="True" />
+    <setting name="gradleBuildEnabled" value="True" />
+    <setting name="gradlePropertiesTemplateEnabled" value="True" />
+    <setting name="gradleTemplateEnabled" value="True" />
+    <setting name="installAndroidPackages" value="True" />
+    <setting name="localMavenRepoDir" value="Assets/GeneratedLocalRepo" />
+    <setting name="packageDir" value="Assets/Plugins/Android" />
+    <setting name="patchAndroidManifest" value="True" />
+    <setting name="patchMainTemplateGradle" value="True" />
+    <setting name="projectExportEnabled" value="False" />
+    <setting name="useFullCustomMavenRepoPathWhenExport" value="True" />
+    <setting name="useFullCustomMavenRepoPathWhenNotExport" value="False" />
+    <setting name="useJetifier" value="True" />
+  </settings>
+</dependencies>
