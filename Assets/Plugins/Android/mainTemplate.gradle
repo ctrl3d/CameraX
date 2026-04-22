@@ -6,8 +6,28 @@ apply from: '../shared/common.gradle'
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
+// Android Resolver Dependencies Start
+    implementation 'androidx.annotation:annotation:1.9.1' // Assets/CameraX/Editor/NativeCameraPluginDependencies.xml:10
+    implementation 'androidx.camera:camera-camera2:1.4.2' // Assets/CameraX/Editor/NativeCameraPluginDependencies.xml:6
+    implementation 'androidx.camera:camera-core:1.4.2' // Assets/CameraX/Editor/NativeCameraPluginDependencies.xml:5
+    implementation 'androidx.camera:camera-lifecycle:1.4.2' // Assets/CameraX/Editor/NativeCameraPluginDependencies.xml:7
+    implementation 'androidx.core:core-ktx:1.16.0' // Assets/CameraX/Editor/NativeCameraPluginDependencies.xml:9
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.25' // Assets/CameraX/Editor/NativeCameraPluginDependencies.xml:8
+// Android Resolver Dependencies End
 **DEPS**}
 
+// Android Resolver Exclusions Start
+android {
+  packaging {
+      exclude ('/lib/armeabi/*' + '*')
+      exclude ('/lib/armeabi-v7a/*' + '*')
+      exclude ('/lib/mips/*' + '*')
+      exclude ('/lib/mips64/*' + '*')
+      exclude ('/lib/x86/*' + '*')
+      exclude ('/lib/x86_64/*' + '*')
+  }
+}
+// Android Resolver Exclusions End
 android {
     namespace "com.unity3d.player"
     ndkPath "**NDKPATH**"
