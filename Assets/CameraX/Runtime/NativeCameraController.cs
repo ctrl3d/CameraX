@@ -3,6 +3,7 @@ using System.Collections;
 using System.IO;
 using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Android;
 using UnityEngine.UI;
 
 namespace CameraX
