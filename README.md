@@ -8,6 +8,7 @@ Android **CameraX** 기반 Unity 네이티브 카메라 플러그인. OES 외부
 - ISO / 셔터 / 포커스 / AE 수동 제어
 - 프레임 stall 자동 감지 & 세션 복구 (워치독)
 - 워밍업 완료 이벤트 (`OnWarmupComplete`)
+- **프리웜(Prewarm)** 지원 — 카메라 페이지 진입 전 백그라운드 초기화로 시작 지연 제거
 
 > ⚠️ **Android 전용.** Editor / iOS / Standalone 빌드에서는 `IsAvailable == false`
 > 로 no-op. Unity Android Graphics API 는 **OpenGL ES 3** 여야 한다 (Vulkan 미지원).
@@ -95,7 +96,12 @@ class NativeCameraController : MonoBehaviour
     event Action<string>  OnPhotoSaved;     // 저장 경로
     event Action<string>  OnPhotoError;     // 에러 메시지
 
-    Task StartCameraAsync();
+    Task PrewarmAsync();                   // 백그라운드 프리웜 (UI 바인딩 제외)
+    bool IsPrewarmed { get; }               // 프리웜 완료 여부
+    void SetExternalPrewarmState(            // 외부 프리웜 결과 주입
+        AndroidNativeCameraBridge bridge, int oesTexId);
+
+    Task StartCameraAsync();                 // 프리웜 시 즉시 완료
     void StopCamera();
 
     // 노출/포커스
@@ -149,6 +155,30 @@ Unity Scene (RawImage)
 
 ---
 
+## 프리웜 (Prewarm)
+
+카메라 페이지 전환 시 CameraX 세션 생성(~2초)이 체감 지연의 주 원인이다.
+`PrewarmAsync()` 를 미리 호출하면 권한 · Bridge · GL 텍스처 · Java Bridge 폴링을
+백그라운드에서 소화하므로, 이후 `StartCameraAsync()` 는 RT 생성 + UI 바인딩만
+수행해 **~10ms 이내**로 완료된다.
+
+```csharp
+// 결제 확인 화면 등, 카메라 진입 직전 페이지에서:
+await nativeCameraController.PrewarmAsync();
+
+// 촬영 페이지에서:
+await nativeCameraController.StartCameraAsync();  // 프리웜 완료 → 즉시 시작
+```
+
+별도 MonoBehaviour 에서 프리웜을 수행한 결과를 다른 인스턴스에 넘기려면
+`SetExternalPrewarmState()` 를 사용한다.
+
+> ⚠️ 프리웜 상태에서 앱 백그라운드 전환/`StopCamera()` 호출 시 세션이 자동 정리된다.
+> 프리웜 후 사용자가 촬영 페이지에 진입하지 않을 수 있으므로, 필요 시 타임아웃으로
+> `StopCamera()` 를 호출해 배터리 소모를 방지할 것.
+
+---
+
 ## 제약 / 알려진 이슈
 
 - **Graphics API**: OpenGL ES 3 필수. Vulkan 선택 시 로드 실패.
@@ -156,6 +186,7 @@ Unity Scene (RawImage)
   2~3 회 자동 재시작이 발생하다가 안정됨. `OnWarmupComplete` 로 UI 마스킹 권장.
   해당 기기에서는 인스펙터의 **Single Camera Workaround** 를 켜면 Kotlin 쪽에서
   워밍업을 건너뛰는 우회 모드로 동작해 첫 프레임이 즉시 들어온다.
+  **프리웜을 활용하면 일반 기기에서 이 지연을 완전히 제거**할 수 있다.
 - **권한**: `android.permission.CAMERA` 는 AAR 의 manifest 에 이미 포함. 런타임 권한 요청은
   컨트롤러 내부에서 처리.
 

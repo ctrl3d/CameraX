@@ -1,6 +1,6 @@
 {
   "name": "work.ctrl3d.camerax",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "displayName": "CameraX for Unity",
   "description": "Android CameraX 기반 Unity 네이티브 카메라 플러그인. OES 외부 텍스처를 렌더 스레드에서 바로 RenderTexture로 blit해 zero-copy 프리뷰를 제공한다. ISO / 셔터 / 포커스 수동 제어, 프레임 stall 자동 감지·복구(워치독), 워밍업 상태 이벤트 등 포함. Android 전용.",
   "unity": "2021.3",

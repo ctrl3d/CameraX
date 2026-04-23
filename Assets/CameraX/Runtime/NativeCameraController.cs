@@ -25,6 +25,17 @@ namespace CameraX
         [SerializeField] private bool playOnStart = true;
         [SerializeField] private CameraFacing facing = CameraFacing.Front;
 
+        /// <summary>
+        /// Start() 에서 자동으로 카메라를 시작할지 여부.
+        /// PlatformCameraController 등 외부에서 StartCameraAsync() 를 직접 호출하는 경우
+        /// false 로 설정하여 경합을 방지합니다.
+        /// </summary>
+        public bool PlayOnStart
+        {
+            get => playOnStart;
+            set => playOnStart = value;
+        }
+
         [field: SerializeField]
         public bool IsMirrored { get; set; } = true;
 
@@ -65,6 +76,7 @@ namespace CameraX
         private bool _isInitialized;
         private bool _isPlaying;
         private bool _isRestarting;
+        private bool _isStarting;   // StartCameraAsync 재진입 방지
 
         // ─── Prewarm 상태 ─────────────────────────────────────
         private bool _isPrewarmed;
@@ -242,7 +254,7 @@ namespace CameraX
         /// </summary>
         public void SetExternalPrewarmState(AndroidNativeCameraBridge bridge, int oesTexId)
         {
-            if (_isPlaying || _isPrewarmed || _isPrewarming) return;
+            if (_isPlaying || _isPrewarmed || _isPrewarming || _isStarting) return;
             if (bridge == null || oesTexId == 0) return;
 
             _bridge = bridge;
@@ -254,7 +266,8 @@ namespace CameraX
 
         public async Task StartCameraAsync()
         {
-            if (_isPlaying) return;
+            if (_isPlaying || _isStarting) return;
+            _isStarting = true;
 
             // ── 프리웜된 상태라면 빠른 경로: UI 바인딩만 수행 ──
             if (_isPrewarmed)
@@ -286,6 +299,7 @@ namespace CameraX
                 _renderEventFunc = _bridge.RenderEventFunc;
 
                 _isPlaying = true;
+                _isStarting = false;
                 ResetWatchdogState();
 
                 Capabilities = _bridge.GetCapabilities();
@@ -312,6 +326,7 @@ namespace CameraX
                 if (!await RequestCameraPermissionAsync())
                 {
                     Debug.LogWarning("[NativeCamera] Permission denied");
+                    _isStarting = false;
                     return;
                 }
                 _bridge = new AndroidNativeCameraBridge();
@@ -321,6 +336,7 @@ namespace CameraX
             if (!_bridge.IsAvailable)
             {
                 Debug.LogWarning("[NativeCamera] Plugin unavailable. (Editor or missing .aar)");
+                _isStarting = false;
                 return;
             }
 
@@ -336,6 +352,7 @@ namespace CameraX
             if (_oesTexId == 0)
             {
                 Debug.LogError("[NativeCamera] Failed to start preview (texId=0).");
+                _isStarting = false;
                 return;
             }
 
@@ -363,6 +380,7 @@ namespace CameraX
             _renderEventFunc = _bridge.RenderEventFunc;
 
             _isPlaying = true;
+            _isStarting = false;
             ResetWatchdogState();
 
             Capabilities = _bridge.GetCapabilities();
