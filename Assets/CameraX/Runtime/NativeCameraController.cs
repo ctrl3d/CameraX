@@ -70,6 +70,9 @@ namespace CameraX
         private bool _isPrewarmed;
         private bool _isPrewarming;
 
+        // ─── Pause/Resume 상태 ───────────────────────────────
+        private bool _wasPlayingBeforePause;
+
         private IntPtr _renderEventFunc;
         private int _oesTexId;
 
@@ -134,6 +137,9 @@ namespace CameraX
         /// 권한 요청 → Bridge 생성 → GL 텍스처 생성 → Java Bridge 대기까지 수행.
         /// PhotoShootPage 진입 전에 호출하면 StartCameraAsync()가 즉시 완료됩니다.
         /// 이미 프리웜 중이거나 카메라가 재생 중이면 무시합니다.
+        /// 
+        /// NOTE: EatPic 프로젝트에서는 NativeCameraPrewarmHelper + SetExternalPrewarmState() 경로를
+        /// 사용합니다. 이 메서드는 NativeCameraController 를 직접 소유하는 경우의 프리웜용입니다.
         /// </summary>
         public async Task PrewarmAsync()
         {
@@ -255,6 +261,9 @@ namespace CameraX
             {
                 _isPrewarmed = false;
 
+                // 외부 프리웜 시 singleCameraWorkaround 설정이 누락될 수 있으므로 보장
+                _bridge.SetSingleCameraWorkaround(singleCameraWorkaround);
+
                 // 외부 프리웜 시 콜백 수신자가 없을 수 있으므로 보장
                 EnsureCallbackReceiver();
                 _bridge.SetCallbackObjectName(_callbackReceiver.name);
@@ -292,6 +301,9 @@ namespace CameraX
                 Debug.Log($"[NativeCamera] Cleaning up orphaned prewarm resources (oesTexId={_oesTexId}).");
                 _bridge?.StopPreview();
                 _bridge?.ReleaseNativeBridge();
+                _bridge?.Dispose();
+                _bridge = null;
+                _isInitialized = false;
                 _oesTexId = 0;
             }
 
@@ -579,6 +591,9 @@ namespace CameraX
         {
             if (pauseStatus)
             {
+                // resume 시 자동 재시작 판단을 위해 현재 상태 기록
+                _wasPlayingBeforePause = _isPlaying;
+
                 if (_isPrewarmed)
                 {
                     // 프리웜만 된 상태(재생 전)에서도 CameraX 세션 정리
@@ -599,10 +614,16 @@ namespace CameraX
             }
             else
             {
-                if (_isInitialized && !_isPlaying && gameObject.activeInHierarchy)
+                // 이전에 실제로 재생 중이었던 경우에만 자동 재시작
+                if (_wasPlayingBeforePause && _isInitialized && !_isPlaying && gameObject.activeInHierarchy)
                 {
-                    Debug.Log("[NativeCamera] Resumed — restarting camera...");
+                    Debug.Log("[NativeCamera] Resumed — restarting camera (was playing before pause).");
+                    _wasPlayingBeforePause = false;
                     await StartCameraAsync();
+                }
+                else if (!_wasPlayingBeforePause)
+                {
+                    Debug.Log("[NativeCamera] Resumed — skipping restart (was not playing before pause).");
                 }
             }
         }
