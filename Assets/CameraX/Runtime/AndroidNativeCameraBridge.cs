@@ -200,6 +200,82 @@ namespace CameraX
             => Call("setSingleCameraWorkaround", enable);
 
         /// <summary>
+        /// 단일-카메라 기기에서 CameraX 초기화 시 LENS_FACING_BACK 검증 재시도(~6 초)를
+        /// 건너뛰기 위해, 플러그인보다 먼저 <c>ProcessCameraProvider.configureInstance</c>를
+        /// 호출하여 <c>setAvailableCamerasLimiter</c>를 설정합니다.
+        /// <para><c>StartPreview</c> 호출 전에 한 번만 실행하면 됩니다.
+        /// 이미 구성된 경우 예외를 잡아 무시합니다.</para>
+        /// </summary>
+        public static void PreConfigureCameraXForSingleCamera(bool useFront)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using var camera2Config = new AndroidJavaClass("androidx.camera.camera2.Camera2Config");
+                using var defaultConfig = camera2Config.CallStatic<AndroidJavaObject>("defaultConfig");
+
+                using var builder = new AndroidJavaClass("androidx.camera.core.CameraXConfig$Builder")
+                    .CallStatic<AndroidJavaObject>("fromConfig", defaultConfig);
+
+                // 사용할 카메라 방향만 허용 → CameraValidator 가 반대쪽 카메라를 찾지 않음
+                using var selectorClass = new AndroidJavaClass("androidx.camera.core.CameraSelector");
+                using var selector = selectorClass.GetStatic<AndroidJavaObject>(
+                    useFront ? "DEFAULT_FRONT_CAMERA" : "DEFAULT_BACK_CAMERA");
+                builder.Call<AndroidJavaObject>("setAvailableCamerasLimiter", selector);
+
+                // 플러그인(ensureConfigured)과 동일한 executor/log 설정
+                using var executors = new AndroidJavaClass("java.util.concurrent.Executors");
+                using var executor = executors.CallStatic<AndroidJavaObject>("newSingleThreadExecutor");
+                builder.Call<AndroidJavaObject>("setCameraExecutor", (AndroidJavaObject)executor);
+                builder.Call<AndroidJavaObject>("setMinimumLoggingLevel", 4); // Log.INFO
+
+                using var config = builder.Call<AndroidJavaObject>("build");
+
+                using var provider = new AndroidJavaClass(
+                    "androidx.camera.lifecycle.ProcessCameraProvider");
+                provider.CallStatic("configureInstance", config);
+
+                Debug.Log($"[NativeCamera] Pre-configured CameraX (useFront={useFront}, limiter applied)");
+            }
+            catch (Exception e)
+            {
+                // 이미 구성됐거나 다른 이유로 실패 → 로그만 남기고 진행
+                Debug.LogWarning($"[NativeCamera] PreConfigureCameraX skipped: {e.Message}");
+            }
+#endif
+        }
+
+        /// <summary>
+        /// <c>ProcessCameraProvider.getInstance()</c> 를 미리 호출하여
+        /// CameraX 내부 초기화를 백그라운드에서 선행합니다.
+        /// SurfaceTexture 나 카메라 세션은 생성하지 않으므로
+        /// GL 컨텍스트 / 라이프사이클 문제가 없습니다.
+        /// <para><c>PreConfigureCameraXForSingleCamera</c> 호출 후 바로 실행하면
+        /// 카메라 페이지 진입 시 provider 가 이미 캐시되어 즉시 사용 가능합니다.</para>
+        /// </summary>
+        public static void WarmUpCameraProvider()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
+                using var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
+                using var provider = new AndroidJavaClass(
+                    "androidx.camera.lifecycle.ProcessCameraProvider");
+                // getInstance() 는 ListenableFuture 를 반환하며, 내부적으로
+                // CameraX 초기화를 비동기로 시작한다. 결과는 캐시되므로
+                // 이후 Java 쪽 CameraXSession.start() 에서 즉시 완료된다.
+                using var future = provider.CallStatic<AndroidJavaObject>("getInstance", activity);
+                Debug.Log("[NativeCamera] ProcessCameraProvider.getInstance() warm-up triggered.");
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[NativeCamera] WarmUpCameraProvider skipped: {e.Message}");
+            }
+#endif
+        }
+
+        /// <summary>
         /// UnitySendMessage 콜백(OnPhotoSaved / OnPhotoError) 이 전달될 GameObject 이름.
         /// NativeCameraController 가 내부 숨김 GameObject 를 만들어 연결함.
         /// </summary>

@@ -69,6 +69,9 @@ namespace CameraX
                  "일반 기기에서는 끄세요.")]
         [SerializeField] private bool singleCameraWorkaround;
 
+        /// <summary>단일 카메라 우회 모드 설정값을 외부에서 읽을 수 있도록 노출.</summary>
+        public bool SingleCameraWorkaround => singleCameraWorkaround;
+
         private AndroidNativeCameraBridge _bridge;
         private RenderTexture _previewRT;
         private RawImage _rawImage;
@@ -341,6 +344,11 @@ namespace CameraX
             }
 
             _bridge.SetSingleCameraWorkaround(singleCameraWorkaround);
+
+            // 단일 카메라 기기: 플러그인보다 먼저 CameraX 를 설정하여
+            // LENS_FACING_BACK 검증 재시도(~6 초)를 건너뜀
+            if (singleCameraWorkaround)
+                AndroidNativeCameraBridge.PreConfigureCameraXForSingleCamera(facing == CameraFacing.Front);
 
             EnsureCallbackReceiver();
             _bridge.SetCallbackObjectName(_callbackReceiver.name);
