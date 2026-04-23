@@ -285,6 +285,16 @@ namespace CameraX
             }
 
             // ── 프리웜 안 된 경우: 기존 전체 초기화 경로 ──
+
+            // 이전 프리웜이 실패/무효화 되었지만 CameraX 세션이 남아있을 수 있으므로 정리
+            if (_oesTexId != 0)
+            {
+                Debug.Log($"[NativeCamera] Cleaning up orphaned prewarm resources (oesTexId={_oesTexId}).");
+                _bridge?.StopPreview();
+                _bridge?.ReleaseNativeBridge();
+                _oesTexId = 0;
+            }
+
             if (!_isInitialized)
             {
                 if (!await RequestCameraPermissionAsync())
@@ -569,7 +579,15 @@ namespace CameraX
         {
             if (pauseStatus)
             {
-                _isPrewarmed = false;  // 백그라운드 전환 시 프리웜 무효화
+                if (_isPrewarmed)
+                {
+                    // 프리웜만 된 상태(재생 전)에서도 CameraX 세션 정리
+                    _isPrewarmed = false;
+                    _bridge?.StopPreview();
+                    _bridge?.ReleaseNativeBridge();
+                    _oesTexId = 0;
+                    Debug.Log("[NativeCamera] Paused — prewarm resources released.");
+                }
                 if (_isPlaying)
                 {
                     _isPlaying = false;
@@ -665,7 +683,6 @@ namespace CameraX
 
         private void OnDestroy()
         {
-            _isPrewarmed = false;
             StopCamera();
             DestroyCallbackReceiver();
             _bridge?.Dispose();
