@@ -66,6 +66,10 @@ namespace CameraX
         private bool _isPlaying;
         private bool _isRestarting;
 
+        // ─── Prewarm 상태 ─────────────────────────────────────
+        private bool _isPrewarmed;
+        private bool _isPrewarming;
+
         private IntPtr _renderEventFunc;
         private int _oesTexId;
 
@@ -125,10 +129,139 @@ namespace CameraX
                 await StartCameraAsync();
         }
 
+        /// <summary>
+        /// 카메라 하드웨어를 미리 초기화합니다 (UI 바인딩 제외).
+        /// 권한 요청 → Bridge 생성 → GL 텍스처 생성 → Java Bridge 대기까지 수행.
+        /// PhotoShootPage 진입 전에 호출하면 StartCameraAsync()가 즉시 완료됩니다.
+        /// 이미 프리웜 중이거나 카메라가 재생 중이면 무시합니다.
+        /// </summary>
+        public async Task PrewarmAsync()
+        {
+            if (_isPrewarming || _isPrewarmed || _isPlaying) return;
+            _isPrewarming = true;
+
+            try
+            {
+                // 1) 권한 요청
+                if (!_isInitialized)
+                {
+                    if (!await RequestCameraPermissionAsync())
+                    {
+                        Debug.LogWarning("[NativeCamera] Prewarm: Permission denied");
+                        return;
+                    }
+                    _bridge = new AndroidNativeCameraBridge();
+                    _isInitialized = true;
+                }
+
+                if (!_bridge.IsAvailable)
+                {
+                    Debug.LogWarning("[NativeCamera] Prewarm: Plugin unavailable.");
+                    return;
+                }
+
+                _bridge.SetSingleCameraWorkaround(singleCameraWorkaround);
+
+                // 2) 콜백 수신 GameObject 준비
+                EnsureCallbackReceiver();
+                _bridge.SetCallbackObjectName(_callbackReceiver.name);
+
+                // 3) GL 컨텍스트에서 OES 텍스처 생성
+                var tcs = new TaskCompletionSource<int>();
+                StartCoroutine(StartPreviewOnRenderThread(tcs));
+                _oesTexId = await tcs.Task;
+
+                if (_oesTexId == 0)
+                {
+                    Debug.LogError("[NativeCamera] Prewarm: Failed (texId=0).");
+                    return;
+                }
+
+                // 4) Java Bridge 폴링 대기 (최대 2초 — 이 대기를 미리 소화)
+                const int maxBridgeWaitMs = 2000;
+                const int bridgePollMs = 20;
+                bool bridgeReady = false;
+                for (int waited = 0; waited < maxBridgeWaitMs; waited += bridgePollMs)
+                {
+                    if (_bridge.SetNativeBridge())
+                    {
+                        bridgeReady = true;
+                        break;
+                    }
+                    await Task.Delay(bridgePollMs);
+                }
+
+                if (!bridgeReady)
+                {
+                    Debug.LogWarning("[NativeCamera] Prewarm: Bridge not ready within timeout.");
+                    // 프리웜 실패 — StartCameraAsync에서 정상 경로로 진행
+                    CleanupPrewarm();
+                    return;
+                }
+
+                _isPrewarmed = true;
+                Debug.Log($"[NativeCamera] Prewarm complete. oesTexId={_oesTexId}");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[NativeCamera] Prewarm failed: {ex}");
+                CleanupPrewarm();
+            }
+            finally
+            {
+                _isPrewarming = false;
+            }
+        }
+
+        /// <summary>프리웜 실패 시 정리.</summary>
+        private void CleanupPrewarm()
+        {
+            _isPrewarmed = false;
+            if (_oesTexId != 0)
+            {
+                _bridge?.StopPreview();
+                _oesTexId = 0;
+            }
+        }
+
+        /// <summary>프리웜 상태인지 외부에서 확인할 수 있는 프로퍼티.</summary>
+        public bool IsPrewarmed => _isPrewarmed;
+
         public async Task StartCameraAsync()
         {
             if (_isPlaying) return;
 
+            // ── 프리웜된 상태라면 빠른 경로: UI 바인딩만 수행 ──
+            if (_isPrewarmed)
+            {
+                _isPrewarmed = false;
+
+                // RenderTexture 생성 + UI 바인딩
+                _previewRT = new RenderTexture(requestedWidth, requestedHeight, 0, RenderTextureFormat.ARGB32)
+                {
+                    name = "NativeCameraPreviewRT",
+                    filterMode = FilterMode.Bilinear,
+                    wrapMode = TextureWrapMode.Clamp
+                };
+                _previewRT.Create();
+
+                _rawImage.texture = _previewRT;
+                _fitter.aspectRatio = (float)requestedWidth / requestedHeight;
+
+                // 프리웜 시 이미 SetNativeBridge 완료 → 텍스처 포인터만 전달
+                var rtNativePtr = (int)_previewRT.GetNativeTexturePtr();
+                _bridge.SetNativeTextures(_oesTexId, rtNativePtr, requestedWidth, requestedHeight);
+                _renderEventFunc = _bridge.RenderEventFunc;
+
+                _isPlaying = true;
+                ResetWatchdogState();
+
+                Capabilities = _bridge.GetCapabilities();
+                Debug.Log($"[NativeCamera] Started (prewarmed). texId={_oesTexId}, rtPtr={rtNativePtr}.");
+                return;
+            }
+
+            // ── 프리웜 안 된 경우: 기존 전체 초기화 경로 ──
             if (!_isInitialized)
             {
                 if (!await RequestCameraPermissionAsync())
@@ -146,27 +279,21 @@ namespace CameraX
                 return;
             }
 
-            // 단일-카메라 기기 우회는 startPreview 전에 세팅 필요
             _bridge.SetSingleCameraWorkaround(singleCameraWorkaround);
 
-            // TakePhoto 콜백 수신용 숨김 GameObject 구성
             EnsureCallbackReceiver();
             _bridge.SetCallbackObjectName(_callbackReceiver.name);
 
-            // GL 컨텍스트는 렌더링 직후에만 current 이므로,
-            // WaitForEndOfFrame 이후에 StartPreview 를 호출해야
-            // GLES20.glGenTextures() 가 유효한 텍스처 ID 를 반환한다.
-            var tcs = new TaskCompletionSource<int>();
-            StartCoroutine(StartPreviewOnRenderThread(tcs));
-            _oesTexId = await tcs.Task;
+            var tcs2 = new TaskCompletionSource<int>();
+            StartCoroutine(StartPreviewOnRenderThread(tcs2));
+            _oesTexId = await tcs2.Task;
 
             if (_oesTexId == 0)
             {
-                Debug.LogError("[NativeCamera] Failed to start preview (texId=0). GL context may be unavailable.");
+                Debug.LogError("[NativeCamera] Failed to start preview (texId=0).");
                 return;
             }
 
-            // RenderTexture 생성 (네이티브 플러그인이 OES→RT blit 의 대상으로 사용)
             _previewRT = new RenderTexture(requestedWidth, requestedHeight, 0, RenderTextureFormat.ARGB32)
             {
                 name = "NativeCameraPreviewRT",
@@ -178,8 +305,6 @@ namespace CameraX
             _rawImage.texture = _previewRT;
             _fitter.aspectRatio = (float)requestedWidth / requestedHeight;
 
-            // 네이티브 플러그인에 Java bridge 객체 전달
-            // Java 쪽 session이 runOnUiThread로 비동기 생성되므로, 준비될 때까지 대기
             const int maxBridgeWaitMs = 2000;
             const int bridgePollMs = 20;
             for (int waited = 0; waited < maxBridgeWaitMs; waited += bridgePollMs)
@@ -188,16 +313,20 @@ namespace CameraX
                 await Task.Delay(bridgePollMs);
             }
 
-            // 네이티브 플러그인에 텍스처 ID 전달
-            var rtNativePtr = (int)_previewRT.GetNativeTexturePtr();
-            _bridge.SetNativeTextures(_oesTexId, rtNativePtr, requestedWidth, requestedHeight);
-
-            // 렌더 이벤트 함수 포인터 캐시
+            var rtPtr = (int)_previewRT.GetNativeTexturePtr();
+            _bridge.SetNativeTextures(_oesTexId, rtPtr, requestedWidth, requestedHeight);
             _renderEventFunc = _bridge.RenderEventFunc;
 
             _isPlaying = true;
+            ResetWatchdogState();
 
-            // 워치독 / 워밍업 상태 초기화
+            Capabilities = _bridge.GetCapabilities();
+            Debug.Log($"[NativeCamera] Started. texId={_oesTexId}, rtPtr={rtPtr}.");
+        }
+
+        /// <summary>워치독/워밍업 상태를 초기화합니다.</summary>
+        private void ResetWatchdogState()
+        {
             _lastObservedFrames = 0;
             _playStartTime = Time.realtimeSinceStartup;
             _lastFrameProgressTime = _playStartTime;
@@ -206,17 +335,14 @@ namespace CameraX
             _lastRestartCompletedTime = 0f;
             _restartCount = 0;
             IsWarmupComplete = false;
-
-            Capabilities = _bridge.GetCapabilities();
-            Debug.Log($"[NativeCamera] Started. texId={_oesTexId}, rtPtr={rtNativePtr}. " +
-                      $"Caps: ISO {Capabilities.isoMin}~{Capabilities.isoMax}, " +
-                      $"Exp {Capabilities.exposureMinNs}~{Capabilities.exposureMaxNs} ns");
         }
 
         public void StopCamera()
         {
-            if (!_isPlaying) return;
+            if (!_isPlaying && !_isPrewarmed) return;
+
             _isPlaying = false;
+            _isPrewarmed = false;    // 프리웜만 된 상태에서 Stop 호출 시에도 정리
             _bridge?.StopPreview();
             _bridge?.ReleaseNativeBridge();
             ReleaseTextures();
@@ -420,6 +546,7 @@ namespace CameraX
         {
             if (pauseStatus)
             {
+                _isPrewarmed = false;  // 백그라운드 전환 시 프리웜 무효화
                 if (_isPlaying)
                 {
                     _isPlaying = false;
@@ -515,6 +642,7 @@ namespace CameraX
 
         private void OnDestroy()
         {
+            _isPrewarmed = false;
             StopCamera();
             DestroyCallbackReceiver();
             _bridge?.Dispose();
