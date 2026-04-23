@@ -227,6 +227,25 @@ namespace CameraX
         /// <summary>프리웜 상태인지 외부에서 확인할 수 있는 프로퍼티.</summary>
         public bool IsPrewarmed => _isPrewarmed;
 
+        /// <summary>
+        /// 외부에서 미리 초기화된 Bridge 와 OES 텍스처 ID 를 주입합니다.
+        /// 별도의 MonoBehaviour(프리웜 헬퍼)가 수행한 결과를 이 인스턴스에 넘겨,
+        /// 이후 StartCameraAsync() 호출 시 빠른 경로(UI 바인딩만)로 진행하게 합니다.
+        /// 콜백 수신 GameObject 는 StartCameraAsync 빠른 경로에서 자동 생성됩니다.
+        /// 이미 재생 중이거나 프리웜 상태이면 무시합니다.
+        /// </summary>
+        public void SetExternalPrewarmState(AndroidNativeCameraBridge bridge, int oesTexId)
+        {
+            if (_isPlaying || _isPrewarmed || _isPrewarming) return;
+            if (bridge == null || oesTexId == 0) return;
+
+            _bridge = bridge;
+            _oesTexId = oesTexId;
+            _isInitialized = true;
+            _isPrewarmed = true;
+            Debug.Log($"[NativeCamera] External prewarm state injected. oesTexId={oesTexId}");
+        }
+
         public async Task StartCameraAsync()
         {
             if (_isPlaying) return;
@@ -235,6 +254,10 @@ namespace CameraX
             if (_isPrewarmed)
             {
                 _isPrewarmed = false;
+
+                // 외부 프리웜 시 콜백 수신자가 없을 수 있으므로 보장
+                EnsureCallbackReceiver();
+                _bridge.SetCallbackObjectName(_callbackReceiver.name);
 
                 // RenderTexture 생성 + UI 바인딩
                 _previewRT = new RenderTexture(requestedWidth, requestedHeight, 0, RenderTextureFormat.ARGB32)
