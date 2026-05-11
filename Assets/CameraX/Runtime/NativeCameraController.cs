@@ -72,6 +72,16 @@ namespace CameraX
         /// <summary>단일 카메라 우회 모드 설정값을 외부에서 읽을 수 있도록 노출.</summary>
         public bool SingleCameraWorkaround => singleCameraWorkaround;
 
+        [Header("Color Space")]
+        [Tooltip("Linear 컬러스페이스에서 카메라 프레임(sRGB-인코딩)이 밝아지는 현상을 보정하는 RawImage 머티리얼.\n" +
+                 "비워두면 Resources/CameraX/UI-Camera-sRGB 셰이더로 자동 생성. Linear 모드일 때만 적용됨.")]
+        [SerializeField] private Material previewMaterial;
+
+        private const string PreviewShaderResourcePath = "CameraX/UI-Camera-sRGB";
+
+        private Material _autoPreviewMaterial;
+        private Material _previousRawImageMaterial;
+
         private AndroidNativeCameraBridge _bridge;
         private RenderTexture _previewRT;
         private RawImage _rawImage;
@@ -199,17 +209,18 @@ namespace CameraX
                 }
 
                 // 4) Java Bridge 폴링 대기 (최대 2초 — 이 대기를 미리 소화)
-                const int maxBridgeWaitMs = 2000;
-                const int bridgePollMs = 20;
+                // 벽시계 시간 기반: Task.Delay continuation이 프레임당 1회만 처리되므로
+                const float maxBridgeWaitSec = 2f;
+                var bridgeDeadline = Time.realtimeSinceStartup + maxBridgeWaitSec;
                 bool bridgeReady = false;
-                for (int waited = 0; waited < maxBridgeWaitMs; waited += bridgePollMs)
+                while (Time.realtimeSinceStartup < bridgeDeadline)
                 {
                     if (_bridge.SetNativeBridge())
                     {
                         bridgeReady = true;
                         break;
                     }
-                    await Task.Delay(bridgePollMs);
+                    await Task.Yield();
                 }
 
                 if (!bridgeReady)
@@ -285,7 +296,10 @@ namespace CameraX
                 _bridge.SetCallbackObjectName(_callbackReceiver.name);
 
                 // RenderTexture 생성 + UI 바인딩
-                _previewRT = new RenderTexture(requestedWidth, requestedHeight, 0, RenderTextureFormat.ARGB32)
+                // RT 는 Linear 로 고정 — 네이티브 블릿이 sRGB-인코딩 바이트를 그대로 써넣으므로
+                // GL 자동 변환을 끄고, Linear 컬러스페이스에서는 UI 셰이더에서 명시적으로 변환한다.
+                _previewRT = new RenderTexture(requestedWidth, requestedHeight, 0,
+                    RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
                 {
                     name = "NativeCameraPreviewRT",
                     filterMode = FilterMode.Bilinear,
@@ -295,6 +309,7 @@ namespace CameraX
 
                 _rawImage.texture = _previewRT;
                 _fitter.aspectRatio = (float)requestedWidth / requestedHeight;
+                ApplyPreviewMaterial();
 
                 // 프리웜 시 이미 SetNativeBridge 완료 → 텍스처 포인터만 전달
                 var rtNativePtr = (int)_previewRT.GetNativeTexturePtr();
@@ -364,7 +379,9 @@ namespace CameraX
                 return;
             }
 
-            _previewRT = new RenderTexture(requestedWidth, requestedHeight, 0, RenderTextureFormat.ARGB32)
+            // RT 는 Linear 로 고정 — 사유는 prewarm 경로와 동일.
+            _previewRT = new RenderTexture(requestedWidth, requestedHeight, 0,
+                RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
             {
                 name = "NativeCameraPreviewRT",
                 filterMode = FilterMode.Bilinear,
@@ -374,13 +391,16 @@ namespace CameraX
 
             _rawImage.texture = _previewRT;
             _fitter.aspectRatio = (float)requestedWidth / requestedHeight;
+            ApplyPreviewMaterial();
 
-            const int maxBridgeWaitMs = 2000;
-            const int bridgePollMs = 20;
-            for (int waited = 0; waited < maxBridgeWaitMs; waited += bridgePollMs)
+            // 벽시계 시간 기반 폴링: Task.Delay continuation이 프레임당 1회만
+            // 처리되므로, 반복 횟수 대신 실제 경과 시간으로 타임아웃 판단
+            const float maxBridgeWaitSec = 2f;
+            var bridgeDeadline = Time.realtimeSinceStartup + maxBridgeWaitSec;
+            while (Time.realtimeSinceStartup < bridgeDeadline)
             {
                 if (_bridge.SetNativeBridge()) break;
-                await Task.Delay(bridgePollMs);
+                await Task.Yield();
             }
 
             var rtPtr = (int)_previewRT.GetNativeTexturePtr();
@@ -428,6 +448,55 @@ namespace CameraX
                 _previewRT = null;
             }
             if (_rawImage != null) _rawImage.texture = null;
+            RestoreRawImageMaterial();
+        }
+
+        /// <summary>
+        /// Linear 컬러스페이스에서만 RawImage 에 sRGB→Linear 보정 머티리얼을 적용한다.
+        /// 비어 있으면 <c>Hidden/CameraX/UI-Camera-sRGB</c> 셰이더로 1회 자동 생성.
+        /// Gamma 모드에서는 no-op (RawImage 기본 머티리얼 유지).
+        /// </summary>
+        private void ApplyPreviewMaterial()
+        {
+            if (_rawImage == null) return;
+            if (QualitySettings.activeColorSpace != ColorSpace.Linear) return;
+
+            var mat = previewMaterial;
+            if (mat == null)
+            {
+                if (_autoPreviewMaterial == null)
+                {
+                    // Resources/ 경로의 셰이더는 빌드에서 스트립되지 않고 항상 포함된다.
+                    var sh = Resources.Load<Shader>(PreviewShaderResourcePath);
+                    if (sh == null)
+                    {
+                        Debug.LogWarning("[NativeCamera] UI-Camera-sRGB shader not found at " +
+                                         $"Resources/{PreviewShaderResourcePath} — Linear color space preview will " +
+                                         "appear too bright. Ensure the shader file lives under a Resources/ folder.");
+                        return;
+                    }
+                    _autoPreviewMaterial = new Material(sh) { hideFlags = HideFlags.HideAndDontSave };
+                }
+                mat = _autoPreviewMaterial;
+            }
+
+            if (_rawImage.material != mat)
+            {
+                // 사용자 지정 머티리얼이 있었다면 보존했다가 정지/파괴 시 복구
+                if (_previousRawImageMaterial == null)
+                    _previousRawImageMaterial = _rawImage.material;
+                _rawImage.material = mat;
+            }
+        }
+
+        private void RestoreRawImageMaterial()
+        {
+            if (_rawImage == null) return;
+            if (_previousRawImageMaterial != null)
+            {
+                _rawImage.material = _previousRawImageMaterial;
+                _previousRawImageMaterial = null;
+            }
         }
 
         private IEnumerator StartPreviewOnRenderThread(TaskCompletionSource<int> tcs)
@@ -587,12 +656,13 @@ namespace CameraX
 
             _oesTexId = texId;
             // Java 쪽 session이 runOnUiThread로 비동기 생성되므로, 준비될 때까지 대기
-            const int maxBridgeWaitMs = 2000;
-            const int bridgePollMs = 20;
-            for (int waited = 0; waited < maxBridgeWaitMs; waited += bridgePollMs)
+            // 벽시계 시간 기반: Task.Delay continuation이 프레임당 1회만 처리되므로
+            const float maxBridgeWaitSec = 2f;
+            var bridgeDeadline = Time.realtimeSinceStartup + maxBridgeWaitSec;
+            while (Time.realtimeSinceStartup < bridgeDeadline)
             {
                 if (_bridge.SetNativeBridge()) break;
-                await Task.Delay(bridgePollMs);
+                await Task.Yield();
             }
             var rtNativePtr = (int)_previewRT.GetNativeTexturePtr();
             _bridge.SetNativeTextures(_oesTexId, rtNativePtr, requestedWidth, requestedHeight);
@@ -671,6 +741,29 @@ namespace CameraX
         /// <summary>줌 비율. 1.0 = 기본 광각, > 1.0 = 망원. 기기별 지원 범위 상이.</summary>
         public void SetZoomRatio(float ratio) => _bridge?.SetZoomRatio(ratio);
 
+        /// <summary>
+        /// AE 노출 보정 인덱스. 범위는 <see cref="Capabilities"/>.exposureCompensationMin ~ Max,
+        /// 실 EV 값은 <c>index * exposureCompensationStep</c>. AE 가 켜져 있을 때만 동작.
+        /// </summary>
+        public void SetExposureCompensation(int index) => _bridge?.SetExposureCompensation(index);
+
+        /// <summary>
+        /// AE 노출 보정을 EV 단위(예: -1.0, 0.0, +1.0)로 설정. 내부에서 스텝 단위 인덱스로 반올림.
+        /// Capabilities 가 아직 조회되지 않았거나 step 이 0 인 기기에서는 no-op.
+        /// </summary>
+        public void SetExposureCompensationEv(float ev)
+        {
+            if (_bridge == null || Capabilities == null) return;
+            var step = Capabilities.exposureCompensationStep;
+            if (step <= 0f) return;
+
+            var index = Mathf.RoundToInt(ev / step);
+            index = Mathf.Clamp(index,
+                Capabilities.exposureCompensationMin,
+                Capabilities.exposureCompensationMax);
+            _bridge.SetExposureCompensation(index);
+        }
+
         // ─── Capture ─────────────────────────────────────────
 
         /// <summary>
@@ -733,6 +826,11 @@ namespace CameraX
             StopCamera();
             DestroyCallbackReceiver();
             _bridge?.Dispose();
+            if (_autoPreviewMaterial != null)
+            {
+                Destroy(_autoPreviewMaterial);
+                _autoPreviewMaterial = null;
+            }
         }
     }
 

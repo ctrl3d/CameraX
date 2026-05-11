@@ -192,6 +192,14 @@ namespace CameraX
             => Call("setZoomRatio", ratio);
 
         /// <summary>
+        /// AE 노출 보정. <paramref name="index"/> 는 <see cref="CameraCapabilities.exposureCompensationMin"/>
+        /// ~ <see cref="CameraCapabilities.exposureCompensationMax"/> 범위의 정수 스텝.
+        /// 실 EV 값은 <c>index * exposureCompensationStep</c>. AE 가 켜져 있어야 의미가 있음.
+        /// </summary>
+        public void SetExposureCompensation(int index)
+            => Call("setExposureCompensation", index);
+
+        /// <summary>
         /// 단일-카메라 특수 기기(LENS_FACING 이 null 인 산업용 패드 등) 용 우회 모드.
         /// startPreview 호출 전에 활성화하면 해당 기기에서 워밍업 재시작 없이
         /// 첫 세션부터 프레임이 흐른다.
@@ -321,6 +329,11 @@ namespace CameraX
             public long exposureMaxNs;
             public float minFocusDiopter;
             public int hardwareLevel; // 0=LIMITED 1=FULL 2=LEGACY 3=LEVEL_3
+
+            // AE 노출 보정 (CONTROL_AE_COMPENSATION_RANGE / _STEP)
+            public int exposureCompensationMin;
+            public int exposureCompensationMax;
+            public float exposureCompensationStep; // 한 스텝당 EV (예: 1/3 ≈ 0.333)
         }
     }
 }

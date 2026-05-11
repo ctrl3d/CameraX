@@ -65,6 +65,7 @@ public class CameraHost : MonoBehaviour
     public void Brighter() => cam.SetIso(1600);
     public void FreezeFast()  => cam.SetShutterSpeedSeconds(1f / 1000f);
     public void FocusNear()   => cam.SetFocusDistance(10f);   // diopter
+    public void AeUp()        => cam.SetExposureCompensationEv(+1f); // AE 보정 +1EV
     public void TakeShot()    => cam.TakePhotoAndSave();
 }
 ```
@@ -108,6 +109,8 @@ class NativeCameraController : MonoBehaviour
     void SetAutoExposure(bool enabled);
     void SetIso(int iso);
     void SetShutterSpeedSeconds(float seconds);
+    void SetExposureCompensation(int index);    // AE 보정 (스텝 인덱스)
+    void SetExposureCompensationEv(float ev);   // AE 보정 (EV 단위, 내부 변환)
     void SetFocusDistance(float diopter);
     void TriggerAutoFocus();                // 수동 → AF 복귀
 
